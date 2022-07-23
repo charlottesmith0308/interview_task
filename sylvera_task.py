@@ -12,7 +12,6 @@ Created on Fri Jul 22 08:54:40 2022
 # Set Up
 # =============================================================================
 
-import earthpy.plot as ep
 import geopandas as gpd
 import glob
 import matplotlib.pyplot as plt
@@ -22,6 +21,7 @@ import pandas as pd
 import rasterio as rio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 import rasterio.mask
+from rasterio.plot import reshape_as_image, show, adjust_band
 import seaborn as sns
 
 
@@ -140,15 +140,16 @@ create_true_colour_image("./data/2020_clipped.tif")
         
         
 # Plot RGB raster
-
 im = rio.open("./data/2020_true_color_clipped.tif").read()
+rgb_im= adjust_band(im)
+im = reshape_as_image(im)
 
-ep.plot_rgb(im,
-            rgb=[0, 1, 2],
-            title="2020 Clipped Raster - True Color",
-            )
-plt.show()
-    
+transform = rio.open("./data/2020_true_color_clipped.tif").transform
+
+fig, ax = plt.subplots(1)
+show(rgb_im, ax=ax, transform=transform)
+
+fig.savefig("./data/2020_true_color_clipped.png")
 
 
 # %%
