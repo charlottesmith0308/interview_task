@@ -246,6 +246,7 @@ plot.set_xlabel('Year')
 plot.set_ylabel('Mean NDVI')
 sns.despine()
 
+plot.get_figure().savefig("./data/mean_ndvi_time_series.png")
 
 
 # %%
