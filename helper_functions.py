@@ -25,16 +25,12 @@ from rasterio.plot import reshape_as_image, show, adjust_band
 import seaborn as sns
 
 
-# Set working directory
-os.chdir('/Users/charlotte/Desktop/Sylvera_Task')
+# Allow division by zero
+np.seterr(divide='ignore', invalid='ignore')
 
 
-# %%
-# =============================================================================
-# Task 1 - Clip rasters
-# =============================================================================
 
-def clip_raster_to_shape(src_path, shape_path):
+def clip_raster_to_shape(src_path, shape_path, dst_base):
     """
     Clip raster to shape file
 
@@ -53,7 +49,7 @@ def clip_raster_to_shape(src_path, shape_path):
     
     # Build destination path
     dst_filename = os.path.basename(src_path).replace(".", "_clipped.")
-    dst_path = f"./data/{dst_filename}"
+    dst_path = f"{dst_base}{dst_filename}"
     
     # Read shape
     gdf = gpd.read_file(shape_path)
@@ -71,31 +67,15 @@ def clip_raster_to_shape(src_path, shape_path):
                          "height": out_image.shape[1],
                          "width": out_image.shape[2],
                          "transform": out_transform})
-        src.close()
         
-    # Write clipped raster to file
-    with rio.open(dst_path, "w", **out_meta) as dst:
-        dst.write(out_image)
-        dst.close()
-    
+        
+        # Write clipped raster to file
+        with rio.open(dst_path, "w", **out_meta) as dst:
+            dst.write(out_image)
+            dst.close()
 
-# Clip all tif files in data folder using the provided shape
-files_to_clip = glob.glob("./data/*.tif")
-shape_path = "./data/AOI/AOI.shp"
-
-for f in files_to_clip:
-    clip_raster_to_shape(f, shape_path)
-
-
-
-# %%
-# =============================================================================
-# Task 2 - Plot and save true color image for 2020
-# =============================================================================
-
-# Create RGB raster
-
-def create_true_colour_image(src_path):
+        
+def create_true_colour_image(src_path, dst_base):
     """
     Convert 7 band landsat raster into 3 band RGB raster and plot true color 
     image.
@@ -110,7 +90,11 @@ def create_true_colour_image(src_path):
     None.
 
     """
+    # Build destination path
+    dst_filename = os.path.basename(src_path).replace("_", "_true_color_")
+    dst_path = f"{dst_base}{dst_filename}"
 
+    
     # Open raster
     with rio.open(src_path) as src:
         
@@ -120,45 +104,13 @@ def create_true_colour_image(src_path):
         # Update meta data for 3 band raster
         out_meta = src.profile
         out_meta.update({'count':'3'})
+
+        # Write true color raster to file
+        with rio.open(dst_path, "w", **out_meta) as dst:
+            dst.write(out_im)
+            dst.close()
+
         
-        src.close
-
-    # Build destination path
-    dst_filename = os.path.basename(src_path).replace("_", "_true_color_")
-    dst_path = f"./data/{dst_filename}"
-
-    # Write true color raster to file
-    with rio.open(dst_path, "w", **out_meta) as dst:
-        dst.write(out_im)
-        dst.close()
-
-
-
-create_true_colour_image("./data/2020_clipped.tif")
-        
-        
-        
-        
-# Plot RGB raster
-im = rio.open("./data/2020_true_color_clipped.tif").read()
-rgb_im= adjust_band(im)
-im = reshape_as_image(im)
-
-transform = rio.open("./data/2020_true_color_clipped.tif").transform
-
-fig, ax = plt.subplots(1)
-show(rgb_im, ax=ax, transform=transform)
-
-fig.savefig("./data/2020_true_color_clipped.png")
-
-
-# %%
-# =============================================================================
-# Task 3 - Create and visualise NDVI time series
-# =============================================================================
-
-# Create time series data
-
 def calculate_ndvi(src_path):
     """
     Calculate pixel NDVI from composite landsat raster 
@@ -181,9 +133,6 @@ def calculate_ndvi(src_path):
     with rio.open(src_path) as src:
         RED = src.read(3)
         NIR = src.read(4)
-    
-    # Allow division by zero
-    np.seterr(divide='ignore', invalid='ignore')
 
     # Calculate NDVI using standard formula
     ndvi = (NIR.astype(float) - RED.astype(float)) / (NIR + RED)
@@ -191,7 +140,7 @@ def calculate_ndvi(src_path):
     return ndvi
 
 
-def build_ndvi_time_series(src_files):
+def build_ndvi_time_series(src_files, dst_base):
     """
     Create a time series of the average NDVI for list of rasters and saves a
     to a csv.
@@ -223,66 +172,10 @@ def build_ndvi_time_series(src_files):
         ts = ts.sort_values(by='year', ignore_index=True) #Sort chronologically
    
     # Save time series to csv 
-    dst_path = "./data/ndvi_mean_time_series.csv"
+    dst_path = f"{dst_base}ndvi_mean_time_series.csv"
     ts.to_csv(dst_path)
 
-
-
-src_files = glob.glob("./data/????_clipped.tif")
-build_ndvi_time_series(src_files)
-
-
-
-# Plot time series data
-
-data = pd.read_csv("./data/ndvi_mean_time_series.csv", index_col=0)
-
-plot = sns.lineplot(data = data,
-                    x = 'year',
-                    y = 'ndvi_mean',
-                    )
-
-plot.set_xlabel('Year')
-plot.set_ylabel('Mean NDVI')
-sns.despine()
-
-plot.get_figure().savefig("./data/mean_ndvi_time_series.png")
-
-
-# %%
-# =============================================================================
-# Task 4 - Save NDVI time series CSV to AWS
-# =============================================================================
-
-# Set up session
-AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_SESSION_TOKEN = os.getenv("AWS_SESSION_TOKEN")
-
-# Read dataframe
-ndvi_df = pd.read_csv("./data/ndvi_mean_time_series.csv", index_col=0)
-key = "files/ndvi_time_series.csv"
-
-# Save to S3
-ndvi_df.to_csv(
-    f"s3://{AWS_S3_BUCKET}/{key}",
-    index=False,
-    storage_options={
-        "key": AWS_ACCESS_KEY_ID,
-        "secret": AWS_SECRET_ACCESS_KEY,
-        "token": AWS_SESSION_TOKEN,
-    },
-)
-
-
-# %%
-# =============================================================================
-# Task 5 - Create time series raster for RED Channel
-# =============================================================================
-
-
-def build_RED_time_series_raster(src_files):
+def build_RED_time_series_raster(src_files, dst_base):
     """
     Combine the red band from multilpe rasters as a time series stored in a
     single raster.
@@ -306,7 +199,6 @@ def build_RED_time_series_raster(src_files):
     
     # Add RED channel for each year to time series
     for i in range(0, len(src_files)):
-        print(i)
         ts[i] = rio.open(src_files[i]).read(3)
 
     # Create meta data for new time series
@@ -314,7 +206,7 @@ def build_RED_time_series_raster(src_files):
     out_meta.update({'count':len(src_files)})
     
     # Build destination path
-    dst_path = "./data/RED_timeseries.tif"
+    dst_path = f"{dst_base}RED_timeseries.tif"
     
     # Write time series to file
     with rio.open(dst_path, "w", **out_meta) as dst:
@@ -322,17 +214,7 @@ def build_RED_time_series_raster(src_files):
         dst.close()
 
         
-    
-src_files = glob.glob("./data/????_clipped.tif")
-build_RED_time_series_raster(src_files)   
-
-
-# %%
-# =============================================================================
-# Task 6 - Calculate total area of clipped raster
-# =============================================================================
-
-def reproject_raster(src_path):
+def reproject_raster(src_path, dst_base):
     """
     Reproject a raster from WGS 84 to UTM 37S
 
@@ -348,7 +230,7 @@ def reproject_raster(src_path):
     """
     dst_crs = 'EPSG:32737'   # UTM Zone 37S
     dst_filename = os.path.basename(src_path).replace('.', '_reprojected.')
-    dst_path = f"./data/{dst_filename}"
+    dst_path = f"{dst_base}{dst_filename}"
     
     with rasterio.open(src_path) as src:
         transform, width, height = calculate_default_transform(src.crs, 
@@ -375,39 +257,7 @@ def reproject_raster(src_path):
                     dst_transform=transform,
                     dst_crs=dst_crs,
                     resampling=Resampling.nearest)
-
-
-
-reproject_raster("./data/2020_clipped.tif")
-
-
-with rio.open("./data/2020_clipped_reprojected.tif") as src:
-    im = src.read(1)
-    
-    px_area = src.res[0] * src.res[1]
-    px_count = len(im[im>0])
-    
-    area = px_area * px_count 
-    area_km2 = area / 1000000
-    
-    print(f'The clipped raster is {np.round(area_km2, 2)} km2')
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            
+            dst.close()
+                
+                
